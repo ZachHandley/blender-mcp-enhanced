@@ -21,9 +21,10 @@ BlenderMCP Enhanced connects Blender to Claude AI through the Model Context Prot
 - **Auto-handle generation** for seamless tool chaining
 
 ### ⚡ **Advanced Tool Chaining**
-- **9 new MCP tools** for context management and procedural modeling
+- **13 new MCP tools** for context management and procedural modeling
 - **Enhanced asset downloads** with automatic handle creation
 - **Intelligent operation tracking** and debugging capabilities
+- **Script registry system** for reusable Python code libraries
 
 ## 📦 **Installation (Enhanced Version)**
 
@@ -160,6 +161,14 @@ export BLENDER_PORT=9876
 
 ### Claude for Desktop Integration
 
+#### Quick Setup (Recommended)
+Use the modern Claude CLI for the easiest setup:
+
+```bash
+claude mcp add blender uvx blender-mcp-enhanced
+```
+
+#### Manual Setup
 [Watch the setup instruction video](https://www.youtube.com/watch?v=neoK_WMq92g) (Assuming you have already installed uv)
 
 Go to Claude > Settings > Developer > Edit Config > claude_desktop_config.json to include the following:
@@ -170,22 +179,19 @@ Go to Claude > Settings > Developer > Edit Config > claude_desktop_config.json t
         "blender": {
             "command": "uvx",
             "args": [
-                "blender-mcp"
+                "blender-mcp-enhanced"
             ]
         }
     }
 }
 ```
 
-### Cursor integration
+### Cursor Integration
 
-[![Install MCP Server](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/install-mcp?name=blender&config=eyJjb21tYW5kIjoidXZ4IGJsZW5kZXItbWNwIn0%3D)
-
-For Mac users, go to Settings > MCP and paste the following 
+For Mac users, go to Settings > MCP and paste the following
 
 - To use as a global server, use "add new global MCP server" button and paste
 - To use as a project specific server, create `.cursor/mcp.json` in the root of the project and paste
-
 
 ```json
 {
@@ -193,7 +199,7 @@ For Mac users, go to Settings > MCP and paste the following
         "blender": {
             "command": "uvx",
             "args": [
-                "blender-mcp"
+                "blender-mcp-enhanced"
             ]
         }
     }
@@ -210,7 +216,7 @@ For Windows users, go to Settings > MCP > Add Server, add a new server with the 
             "args": [
                 "/c",
                 "uvx",
-                "blender-mcp"
+                "blender-mcp-enhanced"
             ]
         }
     }
@@ -219,13 +225,36 @@ For Windows users, go to Settings > MCP > Add Server, add a new server with the 
 
 [Cursor setup video](https://www.youtube.com/watch?v=wgWsJshecac)
 
-**⚠️ Only run one instance of the MCP server (either on Cursor or Claude Desktop), not both**
+**⚠️ Only run one instance of the MCP server at a time (Claude Desktop, Cursor, Codex, or VS Code), not multiple simultaneously**
+
+### Codex Integration
+
+For Codex users, you can add the MCP server using the CLI:
+
+```bash
+codex mcp add blender uvx blender-mcp-enhanced
+```
+
+Or manually configure in your Codex settings with:
+
+```json
+{
+    "mcpServers": {
+        "blender": {
+            "command": "uvx",
+            "args": [
+                "blender-mcp-enhanced"
+            ]
+        }
+    }
+}
+```
 
 ### Visual Studio Code Integration
 
 _Prerequisites_: Make sure you have [Visual Studio Code](https://code.visualstudio.com/) installed before proceeding.
 
-[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_blender--mcp_server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=ffffff)](vscode:mcp/install?%7B%22name%22%3A%22blender-mcp%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22uvx%22%2C%22args%22%3A%5B%22blender-mcp%22%5D%7D)
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_blender--mcp_server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=ffffff)](vscode:mcp/install?%7B%22name%22%3A%22blender-mcp-enhanced%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22uvx%22%2C%22args%22%3A%5B%22blender-mcp-enhanced%22%5D%7D)
 
 ### Installing the Blender Addon
 
@@ -290,6 +319,12 @@ Here are some examples of what you can ask Claude to do:
 - "Generate a noise-deformed sphere with geometry nodes and exposed strength parameter"
 - "Create points distributed on a sphere surface with controllable density"
 - "Build a procedural car using geometry node networks"
+
+#### **Script Registry System**
+- "Register a lighting setup script for reuse across projects"
+- "Create and store utility scripts for material creation, then execute them when needed"
+- "Build a library of geometry node templates and execute them by name"
+- "Store scene analysis scripts in different categories and run them on-demand"
 
 #### **Advanced Tool Chaining**
 - "Download a Poly Haven texture, create a procedural object with geometry nodes, and apply the texture"
