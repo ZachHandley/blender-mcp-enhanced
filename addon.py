@@ -15,6 +15,8 @@ import zipfile
 from bpy.props import StringProperty, IntProperty, BoolProperty, EnumProperty
 import io
 from contextlib import redirect_stdout, suppress
+from dataclasses import dataclass, field
+from typing import List, Dict, Union, Any, Optional, Tuple
 
 bl_info = {
     "name": "Blender MCP",
@@ -32,6 +34,71 @@ RODIN_FREE_TRIAL_KEY = "k9TcfFoEhNd9cCPP2guHAHHHkctZHIRhZDywZ1euGUXwihbYLpOjQhof
 REQ_HEADERS = requests.utils.default_headers()
 REQ_HEADERS.update({"User-Agent": "blender-mcp"})
 
+# Check if this is Blender 4+
+IS_BLENDER_4 = bpy.app.version[0] >= 4
+
+# Geometry Nodes Data Classes
+@dataclass
+class NodeDefinition:
+    """Node definition data class"""
+    type: str  # Node type name
+    location: List[float] = field(default_factory=lambda: [0.0, 0.0])  # Node position [x, y]
+    label: str = ""  # Node label
+    inputs: Dict[str, Any] = field(default_factory=dict)  # Input values dictionary
+    properties: Dict[str, Any] = field(default_factory=dict)  # Node properties parameter dictionary
+
+
+@dataclass
+class NodeLink:
+    """Node connection data class"""
+    from_node: Union[str, int]  # Source node name or index
+    from_socket: Union[str, int]  # Source socket name or index
+    to_node: Union[str, int]  # Target node name or index
+    to_socket: Union[str, int]  # Target socket name or index
+
+
+@dataclass
+class GeometryNodeNetwork:
+    """Geometry node network data class"""
+    object_name: str  # Object name
+    nodes: List[NodeDefinition] = field(default_factory=list)  # Node list
+    links: List[NodeLink] = field(default_factory=list)  # Connection list
+    input_sockets: List[Dict[str, str]] = field(default_factory=list)  # Input interface definition
+    output_sockets: List[Dict[str, str]] = field(default_factory=list)  # Output interface definition
+
+
+@dataclass
+class SocketInfo:
+    """Socket information data class"""
+    name: str  # Socket name
+    type: str  # Socket type
+    description: str  # Socket description
+    identifier: str  # Socket identifier
+    enabled: bool  # Whether enabled
+    hide: bool  # Whether hidden
+    default_value: Any = None  # Default value (if any)
+
+
+@dataclass
+class PropertyInfo:
+    """Node property information data class"""
+    identifier: str  # Property identifier
+    name: str  # Property name
+    description: str  # Property description
+    type: str  # Property type
+    default_value: Any = None  # Default value (if any)
+    enum_items: List[Dict[str, str]] = field(default_factory=list)  # Enum options (if any)
+
+
+@dataclass
+class NodeInfo:
+    """Node information data class"""
+    name: str  # Node type name (identifier used to create the node)
+    description: str  # Node description
+    inputs: List[SocketInfo] = field(default_factory=list)  # Input socket information
+    outputs: List[SocketInfo] = field(default_factory=list)  # Output socket information
+    properties: List[PropertyInfo] = field(default_factory=list)  # Node property information
+
 class BlenderMCPServer:
     def __init__(self, host='localhost', port=9876):
         self.host = host
@@ -39,6 +106,14 @@ class BlenderMCPServer:
         self.running = False
         self.socket = None
         self.server_thread = None
+        # Shared context storage for persistent variables between tool calls
+        self.shared_context = {
+            'variables': {},  # User-defined variables
+            'objects': {},    # Object references by handle
+            'materials': {},  # Material references by handle
+            'operations': {}, # Operation results by ID
+            'history': []     # Operation history
+        }
 
     def start(self):
         if self.running:
@@ -207,6 +282,17 @@ class BlenderMCPServer:
             "get_polyhaven_status": self.get_polyhaven_status,
             "get_hyper3d_status": self.get_hyper3d_status,
             "get_sketchfab_status": self.get_sketchfab_status,
+            # New composition tools
+            "get_shared_context": self.get_shared_context,
+            "clear_shared_context": self.clear_shared_context,
+            "get_operation_history": self.get_operation_history,
+            "create_object_handle": self.create_object_handle,
+            "create_material_handle": self.create_material_handle,
+            "list_object_handles": self.list_object_handles,
+            "list_material_handles": self.list_material_handles,
+            # Geometry Nodes tools
+            "complete_geometry_node": self.complete_geometry_node,
+            "get_geometry_nodes_status": self.get_geometry_nodes_status,
         }
 
         # Add Polyhaven handlers only if enabled
@@ -403,11 +489,20 @@ class BlenderMCPServer:
             return {"error": str(e)}
 
     def execute_code(self, code):
-        """Execute arbitrary Blender Python code"""
+        """Execute arbitrary Blender Python code with shared context"""
         # This is powerful but potentially dangerous - use with caution
         try:
-            # Create a local namespace for execution
-            namespace = {"bpy": bpy}
+            # Create namespace with shared context and helper functions
+            namespace = {
+                "bpy": bpy,
+                "shared": self.shared_context['variables'],  # Direct access to shared variables
+                "get_object": lambda handle: self.shared_context['objects'].get(handle),
+                "get_material": lambda handle: self.shared_context['materials'].get(handle),
+                "get_operation": lambda op_id: self.shared_context['operations'].get(op_id),
+                "store_object": self._store_object_handle,
+                "store_material": self._store_material_handle,
+                "store_operation": self._store_operation_result,
+            }
 
             # Capture stdout during execution, and return it as result
             capture_buffer = io.StringIO()
@@ -415,11 +510,148 @@ class BlenderMCPServer:
                 exec(code, namespace)
 
             captured_output = capture_buffer.getvalue()
-            return {"executed": True, "result": captured_output}
+
+            # Store operation in history
+            self._add_to_history("execute_code", code[:100] + "..." if len(code) > 100 else code, captured_output)
+
+            return {"executed": True, "result": captured_output, "shared_variables": list(self.shared_context['variables'].keys())}
         except Exception as e:
-            raise Exception(f"Code execution error: {str(e)}")
+            error_msg = f"Code execution error: {str(e)}"
+            self._add_to_history("execute_code", code[:100] + "..." if len(code) > 100 else code, f"ERROR: {error_msg}")
+            raise Exception(error_msg)
 
+    def _store_object_handle(self, handle, obj_name):
+        """Store object reference by handle"""
+        obj = bpy.data.objects.get(obj_name)
+        if obj:
+            self.shared_context['objects'][handle] = obj
+            return f"Stored object '{obj_name}' as handle '{handle}'"
+        return f"Object '{obj_name}' not found"
 
+    def _store_material_handle(self, handle, mat_name):
+        """Store material reference by handle"""
+        mat = bpy.data.materials.get(mat_name)
+        if mat:
+            self.shared_context['materials'][handle] = mat
+            return f"Stored material '{mat_name}' as handle '{handle}'"
+        return f"Material '{mat_name}' not found"
+
+    def _store_operation_result(self, op_id, result):
+        """Store operation result by ID"""
+        self.shared_context['operations'][op_id] = result
+        return f"Stored operation result as '{op_id}'"
+
+    def _add_to_history(self, operation, input_data, result):
+        """Add operation to history"""
+        self.shared_context['history'].append({
+            'operation': operation,
+            'input': input_data,
+            'result': str(result)[:200] + "..." if len(str(result)) > 200 else str(result),
+            'timestamp': time.time()
+        })
+        # Keep only last 50 operations
+        if len(self.shared_context['history']) > 50:
+            self.shared_context['history'] = self.shared_context['history'][-50:]
+
+    def get_shared_context(self):
+        """Get current shared context state"""
+        return {
+            "variables": self.shared_context['variables'],
+            "object_handles": list(self.shared_context['objects'].keys()),
+            "material_handles": list(self.shared_context['materials'].keys()),
+            "operation_ids": list(self.shared_context['operations'].keys()),
+            "history_count": len(self.shared_context['history'])
+        }
+
+    def clear_shared_context(self, section="all"):
+        """Clear shared context (all, variables, objects, materials, operations, history)"""
+        if section == "all":
+            self.shared_context = {
+                'variables': {},
+                'objects': {},
+                'materials': {},
+                'operations': {},
+                'history': []
+            }
+            return "Cleared all shared context"
+        elif section == "variables":
+            self.shared_context['variables'].clear()
+            return "Cleared shared variables"
+        elif section == "objects":
+            self.shared_context['objects'].clear()
+            return "Cleared object handles"
+        elif section == "materials":
+            self.shared_context['materials'].clear()
+            return "Cleared material handles"
+        elif section == "operations":
+            self.shared_context['operations'].clear()
+            return "Cleared operation results"
+        elif section == "history":
+            self.shared_context['history'].clear()
+            return "Cleared operation history"
+        else:
+            return f"Unknown section: {section}. Use: all, variables, objects, materials, operations, history"
+
+    def get_operation_history(self, count=10):
+        """Get recent operation history"""
+        recent_history = self.shared_context['history'][-count:] if count else self.shared_context['history']
+        return {"history": recent_history, "total_operations": len(self.shared_context['history'])}
+
+    def create_object_handle(self, handle, object_name):
+        """Create a handle for an object to reference in future operations"""
+        obj = bpy.data.objects.get(object_name)
+        if not obj:
+            return {"error": f"Object '{object_name}' not found"}
+
+        self.shared_context['objects'][handle] = obj
+        self._add_to_history("create_object_handle", f"{handle} -> {object_name}", f"Created handle '{handle}'")
+
+        return {
+            "success": True,
+            "handle": handle,
+            "object_name": object_name,
+            "object_type": obj.type,
+            "location": [obj.location.x, obj.location.y, obj.location.z]
+        }
+
+    def create_material_handle(self, handle, material_name):
+        """Create a handle for a material to reference in future operations"""
+        mat = bpy.data.materials.get(material_name)
+        if not mat:
+            return {"error": f"Material '{material_name}' not found"}
+
+        self.shared_context['materials'][handle] = mat
+        self._add_to_history("create_material_handle", f"{handle} -> {material_name}", f"Created handle '{handle}'")
+
+        return {
+            "success": True,
+            "handle": handle,
+            "material_name": material_name,
+            "uses_nodes": mat.use_nodes
+        }
+
+    def list_object_handles(self):
+        """List all object handles and their details"""
+        handles = {}
+        for handle, obj in self.shared_context['objects'].items():
+            handles[handle] = {
+                "name": obj.name,
+                "type": obj.type,
+                "location": [obj.location.x, obj.location.y, obj.location.z],
+                "visible": obj.visible_get()
+            }
+        return {"object_handles": handles}
+
+    def list_material_handles(self):
+        """List all material handles and their details"""
+        handles = {}
+        for handle, mat in self.shared_context['materials'].items():
+            handles[handle] = {
+                "name": mat.name,
+                "uses_nodes": mat.use_nodes,
+                "users": mat.users
+            }
+        return {"material_handles": handles}
 
     def get_polyhaven_categories(self, asset_type):
         """Get categories for a specific asset type from Polyhaven"""
@@ -694,10 +926,17 @@ class BlenderMCPServer:
 
                         y_pos -= 250
 
+                    # Auto-create material handle for easy chaining
+                    material_handle = f"material_{asset_id}"
+                    self.shared_context['materials'][material_handle] = mat
+
+                    self._add_to_history("download_polyhaven_asset", f"texture {asset_id}", f"Created material {mat.name}")
+
                     return {
                         "success": True,
                         "message": f"Texture {asset_id} imported as material",
                         "material": mat.name,
+                        "material_handle": material_handle,  # New: handle for chaining
                         "maps": list(downloaded_maps.keys())
                     }
 
@@ -769,10 +1008,20 @@ class BlenderMCPServer:
                         # Get the names of imported objects
                         imported_objects = [obj.name for obj in bpy.context.selected_objects]
 
+                        # Auto-create handles for imported objects for easy chaining
+                        object_handles = {}
+                        for i, obj_name in enumerate(imported_objects):
+                            handle = f"imported_{asset_id}_{i}"
+                            self.shared_context['objects'][handle] = bpy.data.objects[obj_name]
+                            object_handles[handle] = obj_name
+
+                        self._add_to_history("download_polyhaven_asset", f"model {asset_id}", f"Imported {len(imported_objects)} objects")
+
                         return {
                             "success": True,
                             "message": f"Model {asset_id} imported successfully",
-                            "imported_objects": imported_objects
+                            "imported_objects": imported_objects,
+                            "object_handles": object_handles  # New: handles for chaining
                         }
                     except Exception as e:
                         return {"error": f"Failed to import model: {str(e)}"}
@@ -1687,6 +1936,205 @@ class BlenderMCPServer:
             import traceback
             traceback.print_exc()
             return {"error": f"Failed to download model: {str(e)}"}
+    #endregion
+
+    #region Geometry Nodes
+    def complete_geometry_node(self, object_name, nodes, links, input_sockets=None):
+        """Complete geometry node network creation
+
+        Args:
+            object_name: Object name
+            nodes: List of node definitions
+            links: List of node connections
+            input_sockets: Node group input interface definitions
+
+        Returns:
+            dict: Dictionary containing operation status and related information
+        """
+        try:
+            obj = bpy.data.objects.get(object_name)
+            if not obj:
+                result = self._create_geometry_nodes_object(object_name)
+                if "error" in result:
+                    return result
+                obj = bpy.data.objects.get(object_name)
+
+            # Find geometry nodes modifier
+            geometry_modifier = None
+            for modifier in obj.modifiers:
+                if modifier.type == 'NODES':
+                    geometry_modifier = modifier
+                    break
+
+            if geometry_modifier and geometry_modifier.node_group:
+                old_node_group_name = geometry_modifier.node_group.name
+                geometry_modifier.node_group = None
+
+                # Try to delete the old node group
+                old_node_group = bpy.data.node_groups.get(old_node_group_name)
+                if old_node_group:
+                    bpy.data.node_groups.remove(old_node_group)
+
+            # If there's no geometry nodes modifier, create one
+            if not geometry_modifier:
+                geometry_modifier = obj.modifiers.new(name="GeometryNodes", type='NODES')
+
+            # Create a new node group
+            node_group = bpy.data.node_groups.new(name=f"{object_name}_geometry", type='GeometryNodeTree')
+            if IS_BLENDER_4:
+                node_group.is_modifier = True
+
+            # Set the node group for the modifier
+            geometry_modifier.node_group = node_group
+
+            # Setup node group interface
+            self._setup_node_group_interface(node_group, input_sockets)
+
+            # Create nodes
+            created_nodes = {}
+            for i, node_data in enumerate(nodes):
+                node_type = node_data.get("type", "")
+                if not node_type:
+                    continue
+
+                # Create the node
+                try:
+                    node = node_group.nodes.new(type=node_type)
+                    created_nodes[i] = node
+
+                    # Set node properties
+                    if "label" in node_data:
+                        node.label = node_data["label"]
+                    if "location" in node_data:
+                        node.location = node_data["location"]
+
+                    # Set node inputs
+                    if "inputs" in node_data:
+                        for input_name, value in node_data["inputs"].items():
+                            if hasattr(node, "inputs") and input_name in node.inputs:
+                                try:
+                                    node.inputs[input_name].default_value = value
+                                except:
+                                    pass  # Some inputs can't be set
+
+                    # Set node properties
+                    if "properties" in node_data:
+                        for prop_name, value in node_data["properties"].items():
+                            if hasattr(node, prop_name):
+                                try:
+                                    setattr(node, prop_name, value)
+                                except:
+                                    pass  # Some properties can't be set
+
+                except Exception as e:
+                    return {"error": f"Failed to create node {node_type}: {str(e)}"}
+
+            # Create links
+            for link_data in links:
+                try:
+                    from_node_idx = link_data.get("from_node")
+                    to_node_idx = link_data.get("to_node")
+                    from_socket = link_data.get("from_socket")
+                    to_socket = link_data.get("to_socket")
+
+                    if from_node_idx in created_nodes and to_node_idx in created_nodes:
+                        from_node = created_nodes[from_node_idx]
+                        to_node = created_nodes[to_node_idx]
+
+                        # Handle socket references (name or index)
+                        if isinstance(from_socket, str):
+                            from_output = from_node.outputs.get(from_socket)
+                        else:
+                            from_output = from_node.outputs[from_socket] if from_socket < len(from_node.outputs) else None
+
+                        if isinstance(to_socket, str):
+                            to_input = to_node.inputs.get(to_socket)
+                        else:
+                            to_input = to_node.inputs[to_socket] if to_socket < len(to_node.inputs) else None
+
+                        if from_output and to_input:
+                            node_group.links.new(from_output, to_input)
+
+                except Exception as e:
+                    return {"error": f"Failed to create link: {str(e)}"}
+
+            # Auto-create object handle for easy chaining
+            object_handle = f"geometry_{object_name}"
+            self.shared_context['objects'][object_handle] = obj
+
+            # Add to history
+            self._add_to_history("complete_geometry_node", f"object: {object_name}", f"Created geometry node network")
+
+            return {
+                "success": True,
+                "message": f"Geometry node network created for {object_name}",
+                "object_name": object_name,
+                "object_handle": object_handle,  # New: handle for chaining
+                "node_group": node_group.name,
+                "nodes_created": len(created_nodes),
+                "links_created": len(links)
+            }
+
+        except Exception as e:
+            error_msg = f"Failed to create geometry node network: {str(e)}"
+            self._add_to_history("complete_geometry_node", f"object: {object_name}", f"ERROR: {error_msg}")
+            return {"error": error_msg}
+
+    def _create_geometry_nodes_object(self, object_name):
+        """Create a basic object for geometry nodes"""
+        try:
+            # Create a simple cube as base
+            bpy.ops.mesh.primitive_cube_add()
+            obj = bpy.context.active_object
+            obj.name = object_name
+            return {"success": True, "object_name": object_name}
+        except Exception as e:
+            return {"error": f"Failed to create object: {str(e)}"}
+
+    def _setup_node_group_interface(self, node_group, input_sockets):
+        """Setup the node group interface for inputs/outputs"""
+        if not input_sockets:
+            return
+
+        try:
+            # Clear existing interface
+            if IS_BLENDER_4:
+                # Blender 4.x interface
+                interface = node_group.interface
+                for item in interface.items_tree:
+                    if item.item_type in ['SOCKET']:
+                        interface.remove(item)
+
+                # Add new inputs
+                for socket_def in input_sockets:
+                    socket_type = socket_def.get("type", "VALUE")
+                    socket_name = socket_def.get("name", "Input")
+                    interface.new_socket(socket_name, in_out='INPUT', socket_type=socket_type)
+            else:
+                # Blender 3.x interface
+                inputs = node_group.inputs
+                outputs = node_group.outputs
+
+                # Clear existing
+                inputs.clear()
+
+                # Add new inputs
+                for socket_def in input_sockets:
+                    socket_type = socket_def.get("type", "NodeSocketFloat")
+                    socket_name = socket_def.get("name", "Input")
+                    inputs.new(socket_type, socket_name)
+
+        except Exception as e:
+            print(f"Warning: Failed to setup node group interface: {str(e)}")
+
+    def get_geometry_nodes_status(self):
+        """Get the status of geometry nodes support"""
+        return {
+            "enabled": True,
+            "blender_version": bpy.app.version_string,
+            "is_blender_4": IS_BLENDER_4,
+            "message": f"Geometry Nodes support available (Blender {bpy.app.version_string})"
+        }
     #endregion
 
 # Blender UI Panel

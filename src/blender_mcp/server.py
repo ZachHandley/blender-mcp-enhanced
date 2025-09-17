@@ -319,7 +319,14 @@ def get_viewport_screenshot(ctx: Context, max_size: int = 800) -> Image:
 def execute_blender_code(ctx: Context, code: str) -> str:
     """
     Execute arbitrary Python code in Blender. Make sure to do it step-by-step by breaking it into smaller chunks.
-    
+
+    Now includes shared context between executions! You can use:
+    - shared['variable_name'] = value  # Store variables for later use
+    - get_object('handle_name')       # Get stored object references
+    - get_material('handle_name')     # Get stored material references
+    - store_object('handle', 'obj_name')    # Store object reference
+    - store_material('handle', 'mat_name')  # Store material reference
+
     Parameters:
     - code: The Python code to execute
     """
@@ -327,10 +334,134 @@ def execute_blender_code(ctx: Context, code: str) -> str:
         # Get the global connection
         blender = get_blender_connection()
         result = blender.send_command("execute_code", {"code": code})
-        return f"Code executed successfully: {result.get('result', '')}"
+
+        # Show shared variables if any
+        shared_vars = result.get('shared_variables', [])
+        output = f"Code executed successfully: {result.get('result', '')}"
+        if shared_vars:
+            output += f"\nShared variables: {', '.join(shared_vars)}"
+        return output
     except Exception as e:
         logger.error(f"Error executing code: {str(e)}")
         return f"Error executing code: {str(e)}"
+
+@mcp.tool()
+def get_shared_context(ctx: Context) -> str:
+    """
+    Get the current shared context state - shows persistent variables, object handles,
+    material handles, and operation history that persists between tool calls.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("get_shared_context")
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error getting shared context: {str(e)}")
+        return f"Error getting shared context: {str(e)}"
+
+@mcp.tool()
+def clear_shared_context(ctx: Context, section: str = "all") -> str:
+    """
+    Clear shared context. Useful for starting fresh.
+
+    Parameters:
+    - section: What to clear (all, variables, objects, materials, operations, history)
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("clear_shared_context", {"section": section})
+        return result
+    except Exception as e:
+        logger.error(f"Error clearing shared context: {str(e)}")
+        return f"Error clearing shared context: {str(e)}"
+
+@mcp.tool()
+def get_operation_history(ctx: Context, count: int = 10) -> str:
+    """
+    Get recent operation history for debugging.
+
+    Parameters:
+    - count: Number of recent operations to show (default 10)
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("get_operation_history", {"count": count})
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error getting operation history: {str(e)}")
+        return f"Error getting operation history: {str(e)}"
+
+@mcp.tool()
+def create_object_handle(ctx: Context, handle: str, object_name: str) -> str:
+    """
+    Create a handle for an object to reference in future operations.
+    This allows you to easily reference objects across multiple tool calls.
+
+    Parameters:
+    - handle: The handle name to create (e.g., 'my_cube', 'main_character')
+    - object_name: The name of the Blender object
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("create_object_handle", {"handle": handle, "object_name": object_name})
+
+        if "error" in result:
+            return f"Error: {result['error']}"
+
+        return f"Created handle '{handle}' for object '{object_name}' at location {result['location']}"
+    except Exception as e:
+        logger.error(f"Error creating object handle: {str(e)}")
+        return f"Error creating object handle: {str(e)}"
+
+@mcp.tool()
+def create_material_handle(ctx: Context, handle: str, material_name: str) -> str:
+    """
+    Create a handle for a material to reference in future operations.
+    This allows you to easily reference materials across multiple tool calls.
+
+    Parameters:
+    - handle: The handle name to create (e.g., 'wood_mat', 'metal_shader')
+    - material_name: The name of the Blender material
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("create_material_handle", {"handle": handle, "material_name": material_name})
+
+        if "error" in result:
+            return f"Error: {result['error']}"
+
+        return f"Created handle '{handle}' for material '{material_name}'"
+    except Exception as e:
+        logger.error(f"Error creating material handle: {str(e)}")
+        return f"Error creating material handle: {str(e)}"
+
+@mcp.tool()
+def list_object_handles(ctx: Context) -> str:
+    """
+    List all object handles and their details.
+    Shows which objects you can reference with get_object() in scripts.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("list_object_handles")
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error listing object handles: {str(e)}")
+        return f"Error listing object handles: {str(e)}"
+
+@mcp.tool()
+def list_material_handles(ctx: Context) -> str:
+    """
+    List all material handles and their details.
+    Shows which materials you can reference with get_material() in scripts.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("list_material_handles")
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error listing material handles: {str(e)}")
+        return f"Error listing material handles: {str(e)}"
 
 @mcp.tool()
 def get_polyhaven_categories(ctx: Context, asset_type: str = "hdris") -> str:
@@ -446,16 +577,26 @@ def download_polyhaven_asset(
         
         if result.get("success"):
             message = result.get("message", "Asset downloaded and imported successfully")
-            
+
             # Add additional information based on asset type
             if asset_type == "hdris":
                 return f"{message}. The HDRI has been set as the world environment."
             elif asset_type == "textures":
                 material_name = result.get("material", "")
+                material_handle = result.get("material_handle", "")
                 maps = ", ".join(result.get("maps", []))
-                return f"{message}. Created material '{material_name}' with maps: {maps}."
+                output = f"{message}. Created material '{material_name}' with maps: {maps}."
+                if material_handle:
+                    output += f"\nMaterial handle '{material_handle}' created for easy reference in scripts: get_material('{material_handle}')"
+                return output
             elif asset_type == "models":
-                return f"{message}. The model has been imported into the current scene."
+                output = f"{message}. The model has been imported into the current scene."
+                object_handles = result.get("object_handles", {})
+                if object_handles:
+                    handles_list = [f"'{handle}' -> {obj_name}" for handle, obj_name in object_handles.items()]
+                    output += f"\nObject handles created: {', '.join(handles_list)}"
+                    output += f"\nUse in scripts: get_object('handle_name')"
+                return output
             else:
                 return message
         else:
@@ -875,6 +1016,119 @@ def import_generated_asset(
     except Exception as e:
         logger.error(f"Error generating Hyper3D task: {str(e)}")
         return f"Error generating Hyper3D task: {str(e)}"
+
+@mcp.tool()
+def complete_geometry_node(
+    ctx: Context,
+    object_name: str,
+    nodes: List[Dict[str, Any]],
+    links: List[Dict[str, Any]],
+    input_sockets: List[Dict[str, str]] = None
+) -> str:
+    """
+    Create a complete geometry node network for procedural modeling.
+
+    This tool enables AI-driven procedural modeling by creating sophisticated geometry node networks.
+    Perfect for creating parametric objects like tables, chairs, organic shapes, and complex procedural geometry.
+
+    Parameters:
+    - object_name: Name of the object to apply geometry nodes to (will be created if doesn't exist)
+    - nodes: List of node definitions, each containing:
+      - type: Node type (e.g., "GeometryNodeMeshCube", "GeometryNodeSubdivisionSurface")
+      - location: [x, y] position in node editor (optional)
+      - label: Custom label for the node (optional)
+      - inputs: Dict of input values {input_name: value} (optional)
+      - properties: Dict of node properties {property_name: value} (optional)
+    - links: List of connections between nodes:
+      - from_node: Source node index (int) or name (str)
+      - from_socket: Source socket name (str) or index (int)
+      - to_node: Target node index (int) or name (str)
+      - to_socket: Target socket name (str) or index (int)
+    - input_sockets: Interface inputs for the node group (optional):
+      - name: Input name
+      - type: Socket type (e.g., "VALUE", "VECTOR", "GEOMETRY")
+      - value: Default value (optional)
+
+    Example for a simple procedural table:
+    nodes = [
+        {"type": "NodeGroupInput", "location": [0, 0]},
+        {"type": "GeometryNodeMeshCube", "location": [200, 200], "inputs": {"Size": [2, 0.1, 1]}},
+        {"type": "GeometryNodeMeshCube", "location": [200, 0], "inputs": {"Size": [0.1, 1.8, 0.1]}},
+        {"type": "GeometryNodeJoinGeometry", "location": [400, 100]},
+        {"type": "NodeGroupOutput", "location": [600, 100]}
+    ]
+    links = [
+        {"from_node": 1, "from_socket": "Mesh", "to_node": 3, "to_socket": 0},
+        {"from_node": 2, "from_socket": "Mesh", "to_node": 3, "to_socket": 0},
+        {"from_node": 3, "from_socket": "Geometry", "to_node": 4, "to_socket": "Geometry"}
+    ]
+
+    Returns success message with details about the created node network.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("complete_geometry_node", {
+            "object_name": object_name,
+            "nodes": nodes,
+            "links": links,
+            "input_sockets": input_sockets
+        })
+
+        if "error" in result:
+            return f"Error: {result['error']}"
+
+        if result.get("success"):
+            message = result.get("message", "Geometry node network created")
+            node_group = result.get("node_group", "")
+            nodes_created = result.get("nodes_created", 0)
+            links_created = result.get("links_created", 0)
+            object_handle = result.get("object_handle", "")
+
+            output = f"{message}\n"
+            output += f"Node group: {node_group}\n"
+            output += f"Created {nodes_created} nodes and {links_created} links\n"
+            output += f"Object '{object_name}' now has procedural geometry nodes applied"
+
+            if object_handle:
+                output += f"\nObject handle '{object_handle}' created for easy reference in scripts: get_object('{object_handle}')"
+
+            return output
+        else:
+            return f"Failed to create geometry node network: {result.get('message', 'Unknown error')}"
+
+    except Exception as e:
+        logger.error(f"Error creating geometry node network: {str(e)}")
+        return f"Error creating geometry node network: {str(e)}"
+
+@mcp.tool()
+def get_geometry_nodes_status(ctx: Context) -> str:
+    """
+    Check the status of Geometry Nodes support in Blender.
+
+    Returns information about Blender version and geometry nodes capabilities.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("get_geometry_nodes_status")
+
+        enabled = result.get("enabled", False)
+        blender_version = result.get("blender_version", "Unknown")
+        is_blender_4 = result.get("is_blender_4", False)
+        message = result.get("message", "")
+
+        if enabled:
+            output = f"{message}\n"
+            output += f"Blender version: {blender_version}\n"
+            output += f"Blender 4.x features: {'Available' if is_blender_4 else 'Not available'}\n"
+            output += f"\nGeometry Nodes enables procedural modeling with AI assistance.\n"
+            output += f"You can create complex parametric objects, organic shapes, and procedural geometry."
+            return output
+        else:
+            return f"Geometry Nodes not available: {message}"
+
+    except Exception as e:
+        logger.error(f"Error checking Geometry Nodes status: {str(e)}")
+        return f"Error checking Geometry Nodes status: {str(e)}"
 
 @mcp.prompt()
 def asset_creation_strategy() -> str:
