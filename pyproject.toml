@@ -1,6 +1,6 @@
 [project]
 name = "blender-mcp-enhanced"
-version = "1.3.2"
+version = "1.3.3"
 description = "Enhanced Blender integration through MCP with shared context, geometry nodes, and advanced tool chaining"
 readme = "README.md"
 requires-python = ">=3.10"
