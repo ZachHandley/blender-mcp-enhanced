@@ -27,18 +27,25 @@ BlenderMCP Enhanced connects Blender to Claude AI through the Model Context Prot
 
 ## 📦 **Installation (Enhanced Version)**
 
-Install the enhanced version directly from this fork:
+### From PyPI (Recommended)
+```bash
+uvx install blender-mcp-enhanced
+```
 
+### From Source
 ```bash
 uvx install git+https://github.com/zachhandley/blender-mcp-enhanced.git
 ```
 
-Or for local development:
+### For Development
 ```bash
 git clone https://github.com/zachhandley/blender-mcp-enhanced.git
 cd blender-mcp-enhanced
 uvx install .
 ```
+
+### Publishing New Versions
+See [PYPI_SETUP.md](PYPI_SETUP.md) for PyPI publishing instructions.
 
 ## 🙏 **Credits**
 
