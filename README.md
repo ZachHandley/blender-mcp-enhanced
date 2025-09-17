@@ -1,8 +1,57 @@
 
 
-# BlenderMCP - Blender Model Context Protocol Integration
+# BlenderMCP Enhanced - Advanced Blender AI Integration
 
-BlenderMCP connects Blender to Claude AI through the Model Context Protocol (MCP), allowing Claude to directly interact with and control Blender. This integration enables prompt assisted 3D modeling, scene creation, and manipulation.
+🚀 **Enhanced fork** of BlenderMCP with **shared context**, **geometry nodes**, and **advanced tool chaining** capabilities.
+
+BlenderMCP Enhanced connects Blender to Claude AI through the Model Context Protocol (MCP), enabling sophisticated AI-assisted 3D modeling, procedural geometry creation, and persistent multi-turn workflows.
+
+## ✨ **Enhanced Features**
+
+### 🔄 **Shared Context & Persistence**
+- **Persistent variables** between tool calls - no more isolated script execution
+- **Object & material handles** for seamless cross-tool references
+- **Operation history** tracking with automatic cleanup
+- **Multi-turn conversations** that build on previous work
+
+### 🔧 **Geometry Nodes Support**
+- **AI-driven procedural modeling** with sophisticated geometry node networks
+- **Blender 4.x compatibility** with automatic interface handling
+- **Parametric object creation** (tables, chairs, organic shapes, complex geometry)
+- **Auto-handle generation** for seamless tool chaining
+
+### ⚡ **Advanced Tool Chaining**
+- **9 new MCP tools** for context management and procedural modeling
+- **Enhanced asset downloads** with automatic handle creation
+- **Intelligent operation tracking** and debugging capabilities
+
+## 📦 **Installation (Enhanced Version)**
+
+Install the enhanced version directly from this fork:
+
+```bash
+uvx install git+https://github.com/zachhandley/blender-mcp-enhanced.git
+```
+
+Or for local development:
+```bash
+git clone https://github.com/zachhandley/blender-mcp-enhanced.git
+cd blender-mcp-enhanced
+uvx install .
+```
+
+## 🙏 **Credits**
+
+**Enhanced by:** [Zach Handley](https://github.com/zachhandley) ([zachhandley.com](https://zachhandley.com))
+- Added shared context and persistent variables system
+- Integrated comprehensive geometry nodes support
+- Enhanced tool chaining and operation tracking
+
+**Original Project:** Based on [BlenderMCP](https://github.com/ahujasid/blender-mcp) by the community
+
+---
+
+**Original Description:**
 
 **We have no official website. Any website you see online is unofficial and has no affiliation with this project. Use them at your own risk.**
 
@@ -222,6 +271,25 @@ Here are some examples of what you can ask Claude to do:
 - "Create a sphere and place it above the cube"
 - "Make the lighting like a studio"
 - "Point the camera at the scene, and make it isometric"
+
+### 🚀 **Enhanced Examples (New in this Fork)**
+
+#### **Persistent Multi-Turn Workflows**
+- "Create a cube, store it as 'my_cube', then in the next prompt scale it by 2"
+- "Download a wood texture, save the material handle, then apply it to all selected objects"
+- "Create 5 different objects, store them all, then arrange them in a circle using their handles"
+
+#### **Geometry Nodes Procedural Modeling**
+- "Create a simple procedural table using geometry nodes"
+- "Use geometry nodes to create a parametric chair with exposed height and width controls"
+- "Generate a noise-deformed sphere with geometry nodes and exposed strength parameter"
+- "Create points distributed on a sphere surface with controllable density"
+- "Build a procedural car using geometry node networks"
+
+#### **Advanced Tool Chaining**
+- "Download a Poly Haven texture, create a procedural object with geometry nodes, and apply the texture"
+- "Generate multiple objects with Hyper3D, store their handles, then create a scene composition"
+- "Create a procedural building, get its dimensions, then create matching furniture to scale"
 
 ## Hyper3D integration
 
