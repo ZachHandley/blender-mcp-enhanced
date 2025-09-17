@@ -44,8 +44,6 @@ cd blender-mcp-enhanced
 uvx install .
 ```
 
-### Publishing New Versions
-See [PYPI_SETUP.md](PYPI_SETUP.md) for PyPI publishing instructions.
 
 ## 🙏 **Credits**
 
